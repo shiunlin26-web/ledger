@@ -1,0 +1,81 @@
+# 【關卡 9】專案設定檔：套件清單、開發工具設定都集中在這一個檔案
+#
+# 取代原本的 requirements.txt 和 requirements-dev.txt。
+# 現在 Python 專案的標準做法是 pyproject.toml（PEP 621），搭配 uv 來安裝：
+#   uv sync            → 建立 .venv、安裝下面所有套件（含 dev），產生/更新 uv.lock
+#   uv run pytest      → 在 .venv 裡執行指令，不用手動 activate
+#   uv add <套件>      → 加套件並更新 lock 檔
+#
+# uv.lock 是「鎖定檔」：記錄每個套件實際安裝的版本（包含套件的套件）。
+# 有了它，你的電腦、CI、Docker 三個地方裝出來的版本完全一樣，
+# 不會出現「我這邊好好的，CI 卻紅了」（通常就是版本不一樣）。
+# 這和前端 package.json + package-lock.json 的關係一模一樣。
+
+[project]
+name = "ledger-backend"
+version = "0.1.0"
+description = "家庭記帳本的後端（FastAPI + SQLModel + Alembic）"
+# 和 .python-version、Dockerfile、CI 實際跑的版本一致。原本寫 >=3.10，uv 會替 3.10、3.11 各算一套版本寫進 uv.lock，
+# 只支援 3.11 以上的修補版（例如 dnspython 2.9.0）在 3.10 那套就換不掉，GitHub 會一直標漏洞，但其實永遠不會裝到
+requires-python = ">=3.13"
+# 執行後端需要的套件（對應原本的 requirements.txt）
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlmodel",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "pyjwt",
+    "bcrypt",
+    "python-multipart",
+    "email-validator",
+    "pydantic-settings",
+    "alembic",
+    "sentry-sdk[fastapi]",
+    "slowapi>=0.1.10",
+    "prometheus-client>=0.26.0",
+    "opentelemetry-sdk>=1.45.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "opentelemetry-instrumentation-fastapi>=0.66b1",
+    "opentelemetry-instrumentation-asyncpg>=0.66b1",
+    "aiokafka>=0.14.0",
+]
+
+# 開發時才需要的套件（對應原本的 requirements-dev.txt）。
+# uv sync 預設會一起裝；Docker 裡用 uv sync --no-dev 跳過，image 比較小
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+    "pyright>=1.1.414",
+]
+
+# ---------- ruff：Python 的 linter + formatter（一個工具取代 flake8 + isort + black）----------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# 遷移檔是自動產生的，不檢查
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+# E/W：PEP 8 風格   F：pyflakes（沒用到的 import、未定義的變數）
+# I：import 排序    B：常見 bug 模式    UP：用新版 Python 語法
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = [
+    "E501",  # 行太長：中文註解常常超過，交給 formatter 處理程式碼的部分就好
+    "B008",  # 參數預設值呼叫函式：FastAPI 的 Depends()、Cookie() 就是這樣用的，是正常寫法
+]
+
+# ---------- pyright：Python 的型別檢查器（和 TypeScript 的 tsc 是同一種東西）----------
+# 【關卡 13】ruff 抓的是「寫法」問題（沒用到的 import、風格），pyright 抓的是「型別」問題：
+# 把 int | None 當 int 用、async 函式忘了 await、回傳型別對不上……這些 ruff 看不出來，要跑起來才會炸。
+# uv run pyright
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+# 遷移檔是自動產生的，跟 ruff 一樣不檢查
+exclude = [".venv", "migrations/versions"]

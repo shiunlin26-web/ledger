@@ -1,0 +1,50 @@
+# 環境變數（絕對不能推）
+.env
+*.env
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# 編輯器
+.vscode/*
+!.vscode/extensions.json
+# 【工具】只有終端機 PATH 這一項（見檔案裡的註解），個人設定請放使用者設定
+!.vscode/settings.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 日誌
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# 測試
+.pytest_cache/
+# 【關卡 21】Playwright 的報告、截圖與 trace
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/playwright/.cache/
+
+# ruff
+.ruff_cache/
+
+# 手動備份（RUNBOOK 第 6.2 節）：含密碼雜湊，不進 git
+backup-*.sql
