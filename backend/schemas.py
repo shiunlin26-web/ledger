@@ -22,11 +22,26 @@ def check_password_chars(v: str) -> str:
     return v  # 驗證通過要把值回傳，否則欄位會變成 None
 
 
+def normalize_email(v: str) -> str:
+    """【關卡 20】email 一律存、一律比對小寫
+
+    EmailStr 只會把 @ 後面（網域）轉小寫，前面原樣保留，所以 Test@x.com 和 test@x.com
+    原本會是兩個帳號，用另一種大小寫登入也會失敗。實務上信箱服務都不分大小寫，統一成小寫。
+    既有資料由遷移 0007 轉成小寫；查詢仍是 WHERE email = ...，照樣走 ix_user_email（關卡 18）
+    """
+    return v.lower()
+
+
 class UserCreate(BaseModel):
     """註冊用：套用完整的密碼規則"""
 
     email: EmailStr
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        return normalize_email(v)
 
     @field_validator("password")  # 這個函式負責驗證 password 欄位
     @classmethod  # Pydantic 規定驗證器要是 classmethod
@@ -44,6 +59,12 @@ class UserLogin(BaseModel):
 
     email: EmailStr
     password: str
+
+    # 和註冊同一套正規化：用哪種大小寫登入都找得到同一個帳號
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        return normalize_email(v)
 
 
 class ChangePasswordRequest(BaseModel):

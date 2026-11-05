@@ -90,7 +90,26 @@ def rate_limit_exceeded(request: Request, exc: Exception) -> Response:
     return limiter._inject_headers(response, request.state.view_rate_limit)
 
 
+def unhandled_error(request: Request, exc: Exception) -> Response:
+    """【關卡 20】沒接住的例外（500）也回 JSON 並帶 X-Request-ID
+
+    沒有這個 handler 時，Starlette 最外層回純文字 "Internal Server Error"，而且例外穿過下面的
+    log middleware，加 X-Request-ID 那一步沒執行到：使用者遇到 500 時手上沒有 id 可以回報。
+    request_id 由 log middleware 先放進 request.state（和這裡的 request 共用同一份 state）。
+    這個 handler 只負責「回什麼」：Starlette 送出回應後仍會把例外往外丟，uvicorn 和 Sentry 照樣收得到，
+    log middleware 也已經記過 traceback。內容只有固定一句，不洩漏例外細節。
+    """
+    headers = {"Cache-Control": "no-store"}
+    request_id = getattr(request.state, "request_id", None)
+    if request_id:
+        headers["X-Request-ID"] = request_id
+    return JSONResponse(
+        status_code=500, content={"detail": "Internal Server Error"}, headers=headers
+    )
+
+
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded)
+app.add_exception_handler(Exception, unhandled_error)
 
 app.add_middleware(
     CORSMiddleware,
@@ -112,19 +131,20 @@ app.add_middleware(
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    # 【關卡 20】放進 request.state：500 的 handler（unhandled_error）要用它補上 X-Request-ID
+    request.state.request_id = request_id
     start = time.perf_counter()
     try:
         response = await call_next(request)
     except Exception:
-        logger.exception(
-            "request failed",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
-            },
-        )
+        extra = {
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+        }
+        _add_user_id(request, extra)
+        logger.exception("request failed", extra=extra)
         raise
     response.headers["X-Request-ID"] = request_id
     # 【關卡 19】API 的回應一律不准快取。瀏覽器、Vercel 的 CDN、公司的 proxy 都可能把 GET 的回應存起來，
@@ -142,8 +162,20 @@ async def log_requests(request: Request, call_next):
     trace_id = current_trace_id()
     if trace_id:
         extra["trace_id"] = trace_id
+    _add_user_id(request, extra)
     logger.info("request", extra=extra)
     return response
+
+
+def _add_user_id(request: Request, extra: dict) -> None:
+    """【關卡 20】知道是誰的請求就記 user_id（登入、換票、登出、帶 access token 的端點會放進 request.state）
+
+    只看 path 的次數分不出「一個人換票換得很兇」還是「人很多」；有 user_id 就能直接統計每個人。
+    只記內部的數字 id，不記 email。
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if user_id is not None:
+        extra["user_id"] = user_id
 
 
 # 【關卡 22】指標：每個請求累計到 http_requests_total 與 http_request_duration_seconds，/metrics 給 Prometheus 抓（metrics.py）

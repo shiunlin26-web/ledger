@@ -155,6 +155,7 @@ async def login(
     # 從 DB 查出來的一定有值。assert 告訴型別檢查器這件事，也在不該發生時立刻炸出來
     assert user.id is not None
     user_id = user.id
+    request.state.user_id = user_id  # 【關卡 20】讓 request log 記下是誰
 
     # 簽 access token
     access_token = create_access_token(user_id)
@@ -175,6 +176,7 @@ async def login(
 
 @router.post("/refresh", response_model=Token)
 async def refresh(
+    request: Request,
     response: Response,  # 【關卡 1】新增：要用它設定新的 cookie
     refresh_token: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
@@ -200,6 +202,8 @@ async def refresh(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
         )
+    # 【關卡 20】查到票就知道是誰：換票成功、重複使用、過期的 log 都會帶 user_id
+    request.state.user_id = rt.user_id
 
     # 【關卡 1】重複使用偵測：這個 token 已經換過了，卻又被拿來用
     # → 可能被偷了（正常使用者手上只會有最新的那個）
@@ -239,6 +243,7 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    request: Request,
     response: Response,
     refresh_token: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
@@ -250,6 +255,7 @@ async def logout(
         )
         rt = result.first()
         if rt:
+            request.state.user_id = rt.user_id  # 【關卡 20】讓 request log 記下是誰
             await session.delete(rt)
             await session.commit()
 

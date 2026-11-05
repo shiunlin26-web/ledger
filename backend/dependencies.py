@@ -1,5 +1,5 @@
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -11,6 +11,7 @@ security_scheme = HTTPBearer()
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
     session: AsyncSession = Depends(get_session),
 ) -> User:
@@ -28,6 +29,8 @@ async def get_current_user(
             detail="Invalid or expired token",
         ) from None
 
+    # 【關卡 20】讓 request log 記下是誰（main.py 的 _add_user_id）
+    request.state.user_id = user_id
     user = await session.get(User, user_id)
     if not user:
         raise HTTPException(
