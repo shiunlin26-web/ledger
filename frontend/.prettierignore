@@ -1,0 +1,6 @@
+dist
+node_modules
+package-lock.json
+# 【關卡 21】Playwright 跑完留下的報告與 trace
+playwright-report
+test-results

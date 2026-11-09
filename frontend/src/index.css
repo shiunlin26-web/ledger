@@ -1,0 +1,15 @@
+/*
+ * 【關卡 15】Tailwind CSS v4：一行 @import 就把所有 utility class 帶進來。
+ * 原本這個檔案是 Vite 範本的 CSS（置中、1126px、紫色），和專案無關，全部拿掉。
+ *
+ * Tailwind 的做法是「樣式寫在 class 名字裡」（bg-zinc-50、p-6、rounded-md），
+ * 不另外寫 CSS 檔。build 時只會留下真的有用到的 class，產出的 CSS 很小。
+ * 這裡只放「整個網站的底色與文字色」這種全域的東西；dark: 的變體會在系統是深色模式時生效。
+ */
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-zinc-50 text-zinc-800 antialiased dark:bg-zinc-950 dark:text-zinc-200;
+  }
+}
