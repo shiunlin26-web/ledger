@@ -1,0 +1,10 @@
+{
+  // 【工具】setup.ps1 是另開一個 PowerShell 跑的：它裝好 uv / Node / git 之後寫進「使用者 PATH」，
+  // 但已經開著的 VS Code 還拿著開啟當下的舊 PATH，之後從它開的每一個終端機都找不到 uv。
+  // 這裡讓這個資料夾的每一個新終端機，都把 setup.ps1 會裝工具的位置放在 PATH 最前面（不存在的資料夾會被略過，不影響）。
+  // 只對 Windows 生效；Mac / Linux 的 uv 安裝程式會改 shell 設定檔，新終端機本來就找得到。
+  // 需要 VS Code「信任這個資料夾」才會套用；改了這裡，已開的終端機要關掉重開。
+  "terminal.integrated.env.windows": {
+    "PATH": "${env:USERPROFILE}\\.local\\bin;${env:USERPROFILE}\\.local\\node;${env:USERPROFILE}\\.local\\git\\cmd;${env:ProgramFiles}\\nodejs;${env:ProgramFiles}\\Git\\cmd;${env:PATH}"
+  }
+}

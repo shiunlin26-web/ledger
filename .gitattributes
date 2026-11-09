@@ -1,0 +1,3 @@
+# PowerShell 腳本：保留 UTF-8 BOM 與 CRLF 無關；統一 LF 結尾
+*.ps1 text eol=lf
+*.sh text eol=lf
