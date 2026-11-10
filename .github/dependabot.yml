@@ -1,0 +1,34 @@
+# 【關卡 13】Dependabot：GitHub 內建、免費。每週檢查套件有沒有新版，有就自動開 PR（會跑 CI）。
+#
+# 為什麼要：套件不更新，安全漏洞會一直留著；但手動追每個套件的版本沒人做得到。
+# 讓它開 PR，你只要看 CI 綠不綠、changelog 有沒有破壞性變更，再決定合不合。
+# 這也是故障演練第 9 條「套件升級後行為改變」的日常版：升級由 PR 承擔，壞了 CI 會紅，不會直接進 main。
+#
+# groups：把小版本（minor、patch）更新合成一個 PR，不然一週可能收到十幾個。大版本（major）另開，因為通常要改程式。
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # @types/node 的大版本要跟實際跑的 Node 版本（.nvmrc）一致，不跟著最新版走
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  # CI 用的 actions（actions/checkout 之類）也會過期
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

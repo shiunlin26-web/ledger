@@ -1,0 +1,52 @@
+# 【關卡 10】Render Blueprint：用一個檔案描述「要在 Render 上開什麼服務、怎麼設定」
+#
+# 不用這個檔案，在 Render 後台一個一個欄位點也可以。但寫成檔案有兩個好處：
+# 1. 設定進 git，看得到歷史、別人（或練習專案）可以照抄
+# 2. 這就是「Infrastructure as Code」的最小版本，Terraform、Kubernetes 的 YAML 都是同一個概念
+#
+# 用法：Render 後台 → New → Blueprint → 選這個 repo → 它會讀這個檔案建立服務，
+# 然後問你 sync: false 的那些環境變數的值。
+
+services:
+  - type: web
+    name: ledger-backend
+    runtime: docker                      # 用 backend/Dockerfile build，不是 Render 自己猜
+    plan: free                           # 免費方案：閒置 15 分鐘休眠，每月 750 小時
+    region: singapore                    # 離台灣最近的區域。Neon 也選新加坡（ap-southeast-1）延遲最低
+    branch: main                         # 推到 main 才部署
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend             # docker build 的「.」是哪個資料夾
+    healthCheckPath: /api/ping           # Render 用這個路徑判斷服務活著沒；啟動後打不通就算部署失敗
+    # 【關卡 11】「CI 綠了才部署」在 Dashboard 設定：服務 → Settings → Build & Deploy → Auto-Deploy → After CI Checks Pass。
+    # Blueprint 也有對應欄位（autoDeployTrigger: checksPass），但免費方案與欄位名稱未經官方文件確認，
+    # 為了不讓 Blueprint 同步失敗，這裡不寫，用 Dashboard 設定
+    envVars:
+      # sync: false → 值不寫在這個檔案裡（它會進 git！），建立服務時 Render 會問你
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      # 正式環境一定是 https，cookie 要加 Secure
+      - key: COOKIE_SECURE
+        value: "true"
+      # 【關卡 11】log 輸出成 JSON，Render 的 Logs 分頁可以搜尋欄位
+      - key: LOG_JSON
+        value: "true"
+      # 【關卡 17】請求經過 Vercel（rewrite）和 Render（負載平衡）兩層代理才到程式，
+      # 頻率限制要從 X-Forwarded-For 右邊數第 2 段取真正的客戶端 IP（rate_limit.py 有說明）
+      - key: TRUSTED_PROXY_HOPS
+        value: "2"
+      # 【關卡 24】免費方案開不了第二個服務跑 outbox worker，所以在 web 程序裡當背景 task 跑；
+      # 沒設 KAFKA_BOOTSTRAP_SERVERS，事件只印到 log（Logs 分頁搜 published）。compose 與 k8s 用獨立的 worker，這裡不設
+      - key: OUTBOX_WORKER
+        value: inline
+      # worker 沒事時最多隔 10 分鐘才碰一次資料庫，Neon 閒置 5 分鐘才能休眠；有人註冊會立刻叫醒它，不用等
+      - key: OUTBOX_POLL_SECONDS
+        value: "600"
+      # 示範站的帳號上限：到了註冊回 503，免費方案的儲存不會被灌爆
+      - key: MAX_USERS
+        value: "1000"
+      # 【關卡 11】SENTRY_DSN 不寫在這裡：有 Sentry 帳號之後，到 Render 的 Environment 分頁手動加。
+      # 寫成 sync: false 會讓每次 Blueprint 同步都問你，沒有 Sentry 的人會卡住
+      # Dockerfile 的 CMD 會讀 $PORT；Render 自己會注入，這裡不用設。
+      # CORS_ORIGINS 不用設：前端經過 Vercel 代理，對瀏覽器來說是同一個網站，沒有跨網域請求。

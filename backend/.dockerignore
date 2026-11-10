@@ -1,0 +1,27 @@
+# 【關卡 9】docker build 時不要複製進 image 的東西
+# 作用跟 .gitignore 一樣，但目的不同：
+# - 安全：.env 裡有密鑰，絕對不能進 image（image 可能被推到別的地方）
+# - 大小與快取：.venv、__pycache__ 很大，而且任何變動都會讓 COPY 那一層失效
+
+# 密鑰
+.env
+*.env
+
+# 本機的虛擬環境（Docker 裡會自己裝一份）
+venv/
+.venv/
+
+# Python 快取
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# 測試正式環境用不到
+tests/
+pytest.ini
+
+# 文件與 git
+*.md
+.git/
+.gitignore

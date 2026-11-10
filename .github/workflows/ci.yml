@@ -1,0 +1,178 @@
+# 【關卡 9】CI：每次 push 或開 PR，GitHub 自動幫你跑這些檢查
+#
+# CI = Continuous Integration（持續整合）。
+# 意思是「每一次改動都自動驗證」，而不是等到要上線才發現壞掉。
+# 這個檔案就是一張「GitHub 要幫你做什麼」的清單，GitHub 會開一台乾淨的 Linux 虛擬機照著跑。
+#
+# 怎麼看結果：GitHub repo → Actions 分頁 → 點進去看每一步的 log。紅色就是失敗，點開看哪一步、為什麼。
+#
+# 這裡有兩個 job（互相獨立、同時跑）：
+#   backend：起一個 Postgres container → 裝套件 → ruff（lint + format）→ pyright → 遷移檢查 → pytest → build Docker image → 真的跑起來打 /ping
+#   frontend：裝套件 → eslint → prettier → vitest → tsc + vite build
+# 任何一步失敗，整個 job 就紅，PR 上會顯示 ❌。
+
+name: CI
+
+# 什麼時候跑：推任何分支、任何 PR 有新 commit、或在 Actions 分頁手動按「Run workflow」。
+# 一個人練習時「每次 push 都跑」最有用：在分支上做動手玩，馬上就能看到紅綠。
+# 多人專案通常只跑 main 和 PR，避免重複（PR 分支的 push 會跑兩次）。
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ==================================================================
+  backend:
+    runs-on: ubuntu-latest   # GitHub 提供的虛擬機（已經裝好 Docker、Node、Python 等常用工具）
+
+    # 【Docker 第一課】services：在跑步驟之前，先用 Docker 起一個 Postgres container 給測試用。
+    # 你沒有本機 Docker，但這裡就是真的 Docker：GitHub 拉 postgres:16 這個 image，跑成 container，
+    # 把 container 的 5432 port 對應到虛擬機的 5432 port，測試就能用 localhost:5432 連上。
+    # 這比用 Neon 當測試 DB 好：不用 secret、不用網路、每次都是全新乾淨的資料庫、跑完就丟。
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ledger_test
+        ports:
+          - 5432:5432
+        # 等 Postgres 真的能接受連線才開始跑步驟，不然第一個測試會因為「DB 還沒好」而失敗
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # 這個 job 裡每一步共用的環境變數。
+    # 沒有 .env 檔（.env 不會進 git），所以設定從這裡給。config.py 讀環境變數的優先順序高於 .env
+    # conftest.py 會檢查 TEST_DATABASE_URL 不能和 DATABASE_URL 相同（測試會清空資料表），
+    # 所以 DATABASE_URL 指向 Postgres 預設就有的 postgres 資料庫，TEST_DATABASE_URL 指向 services 建的 ledger_test
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ledger_test
+      # CI 用的假密鑰。真正的密鑰只放在部署平台的環境變數，永遠不進 git
+      JWT_SECRET: ci-only-secret-not-for-production-0123456789abcdef
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      # 把 repo 的程式碼抓進虛擬機（每次都是全新的機器，什麼都沒有）
+      - uses: actions/checkout@v7
+
+      # 裝 uv。enable-cache 會把下載過的套件存起來，下次 CI 快很多
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # --frozen：嚴格照 uv.lock 裝。lock 檔和 pyproject.toml 對不上就失敗，
+      # 逼你在本機先跑 uv lock / uv sync，確保「CI 裝的」和「你裝的」一模一樣
+      - name: 安裝套件
+        run: uv sync --frozen
+
+      - name: Lint（ruff）
+        run: uv run ruff check .
+
+      # 【關卡 13】格式沒照 ruff format 排就紅。本機跑 uv run ruff format . 就會過
+      - name: Format check（ruff format）
+        run: uv run ruff format --check .
+
+      # 【關卡 13】型別檢查。ruff 抓寫法，pyright 抓型別（int | None 當 int 用、忘了 await……）
+      - name: Type check（pyright）
+        run: uv run pyright
+
+      # 【關卡 11】遷移檔和 models.py 對不對得上？
+      # 先把 DATABASE_URL 那個資料庫用遷移升到最新，再用 alembic check 比對 models.py：
+      # 有人改了 models.py 卻沒產生遷移檔，這一步會紅（本機測試用 create_all 建表，抓不到這種錯）
+      - name: 遷移檢查（alembic upgrade + check）
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: 測試（pytest）
+        run: uv run pytest -q
+
+      # ---------- Docker：build 完真的跑起來 ----------
+      # 【Docker 第二課】build：照 Dockerfile 做出 image，取名 ledger-backend:ci。
+      # 看這一步的 log 可以看到每一層（每一行 Dockerfile）怎麼被執行、哪些層用了快取。
+      - name: Docker build
+        run: docker build -t ledger-backend:ci .
+
+      # 【Docker 第三課】run：把 image 跑成 container。
+      #   -d           背景執行
+      #   --name       幫 container 取名，之後 logs / stop 用得到
+      #   --network host  讓 container 直接用虛擬機的網路：它連 localhost:5432 就是上面的 Postgres，
+      #                我們 curl localhost:8000 就是它。正式環境不會這樣用，但 CI 裡最簡單
+      #   -e           注入環境變數。image 裡沒有 .env（被 .dockerignore 擋掉），設定全靠這裡給。
+      #                這就是「同一個 image，靠環境變數決定連哪個 DB」的 12-factor 做法
+      #   PORT         模擬 Render 等平台會給的環境變數，驗證 Dockerfile 的 ${PORT:-8000} 有效
+      - name: Docker run
+        run: |
+          docker run -d --name backend --network host \
+            -e DATABASE_URL=$DATABASE_URL \
+            -e JWT_SECRET=$JWT_SECRET \
+            -e PORT=8000 \
+            ledger-backend:ci
+
+      # 等它啟動（要先跑 alembic upgrade head 再起 uvicorn），最多等 30 秒，然後打 /ping。
+      # 失敗就印出 container 的 log 再讓這一步紅掉，這樣你在 Actions 畫面就能直接看到原因
+      # 【關卡 11】ping 通了再打 /api/health：確認容器裡的程式真的連得到資料庫、遷移版本正確
+      - name: Smoke test（curl /api/ping、/api/health）
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/ping; then
+              echo; echo "✅ /api/ping OK"
+              echo "--- /api/health ---"
+              curl -fsS http://localhost:8000/api/health | tee health.json; echo
+              grep -q '"db": *"ok"' health.json || { echo "❌ /api/health 說資料庫連不上"; exit 1; }
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "❌ /api/ping 在 30 秒內沒有回應，container log 如下："
+          docker logs backend
+          exit 1
+
+      # 【Docker 第四課】logs：看 container 裡程式印出的東西（uvicorn 的啟動訊息、alembic 的遷移紀錄）。
+      # if: always() → 就算前面失敗也要跑，這樣失敗時才看得到 log
+      - name: Docker logs
+        if: always()
+        run: docker logs backend || true
+
+  # ==================================================================
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci 而不是 npm install：嚴格照 package-lock.json 裝，和後端的 uv sync --frozen 是同一個意思
+      - name: 安裝套件
+        run: npm ci
+
+      - name: Lint（eslint）
+        run: npm run lint
+
+      # 【關卡 13】格式沒照 Prettier 排就紅。本機跑 npm run format 就會過
+      - name: Format check（prettier）
+        run: npm run format:check
+
+      # 【關卡 16】前端測試：Vitest + Testing Library + MSW 假後端，不需要真的後端
+      - name: 測試（vitest）
+        run: npm test
+
+      # tsc -b 先做型別檢查，再 vite build 打包。型別錯誤在這裡就會被擋下來
+      - name: Build（tsc + vite）
+        run: npm run build

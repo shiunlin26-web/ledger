@@ -1,0 +1,49 @@
+# 【關卡 13 註記，2026-10-27】相依套件漏洞掃描：裝的套件版本有沒有已公布的漏洞（CVE）
+#
+# 和 Dependabot 互補：Dependabot 是「有新版就開 PR」，這裡是「現在鎖定的版本有沒有已知的洞」。
+#   pip-audit  讀 uv.lock 匯出的清單，查 PyPI 的漏洞資料庫
+#   npm audit  讀 package-lock.json，查 npm 的漏洞資料庫
+#
+# 刻意不放在 PR 上跑：掃到「還沒有修補版」的漏洞時會讓所有 PR 都紅、什麼都合不了。
+# 所以每週一跑一次 + 手動跑，紅了你會收到通知，看了再決定（升級、等修補版、或確認不影響這個專案）。
+# 費用：免費（公開 repo 不計分鐘；私有也只是幾分鐘）。
+name: Audit
+
+on:
+  schedule:
+    - cron: "23 1 * * 1" # 每週一 01:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version-file: backend/.python-version
+      # 把 uv.lock 匯成 requirements 清單（不含 dev 套件、不含 hash），pip-audit 照清單查，不用真的安裝
+      - name: pip-audit
+        run: |
+          uv export --frozen --no-dev --no-hashes --format requirements-txt -o /tmp/requirements.txt
+          uvx pip-audit --strict --no-deps -r /tmp/requirements.txt
+
+  node:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+      # npm audit 只讀 package-lock.json 去查，不用 npm ci。high 以上才算紅；moderate 以下看報告就好
+      - name: npm audit
+        run: npm audit --audit-level=high

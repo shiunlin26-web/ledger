@@ -1,0 +1,51 @@
+# 【關卡 13 註記，2026-10-27】CodeQL：GitHub 自家的靜態分析（SAST），讀程式碼找已知的漏洞模式
+#
+# 和 ci.yml 的 lint、測試不同：它不看格式、不跑程式，是用「漏洞的樣子」去比對程式碼
+# （SQL injection、XSS、路徑穿越、硬編碼密鑰、不安全的反序列化……）。像多一個專看安全、不會累的 reviewer。
+# 結果在 repo 的 Security → Code scanning 分頁；PR 上有問題會直接標在那一行。
+#
+# 費用：公開 repo 免費。⚠️ repo 改回私有的話 CodeQL 要付 GitHub Advanced Security 的錢，到時候把這個檔案刪掉就好。
+# 什麼時候跑：每個 PR、推到 main、每週一早上（套件和規則庫更新後重掃一次）。
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 1 * * 1" # 每週一 01:17 UTC（台灣 09:17）
+  workflow_dispatch:
+
+# 同一個 PR 連推兩次，前一次還在掃就取消
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write # 把結果寫進 Security 分頁
+  actions: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 兩種語言各掃一次：後端 Python、前端 TypeScript
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 初始化 CodeQL（${{ matrix.language }}）
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended：比預設多掃一些「可能有問題」的樣式；誤報多的話改回 default
+          queries: security-extended
+
+      - name: 分析
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
