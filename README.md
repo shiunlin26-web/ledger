@@ -36,7 +36,7 @@ cd frontend; npm run dev
 
 瀏覽器開 <http://localhost:5173>。開 <http://localhost:5173/api/health> 應該看到 `"db":"ok"`。
 
-repo 已經在的話只要跑第二行，腳本會自己 `git pull`。
+repo 已經在的話只要跑最後一行，腳本會自己 `git pull`。
 
 **Mac / Linux**：`bash scripts/setup.sh --skip-tests`
 
