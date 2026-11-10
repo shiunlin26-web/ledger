@@ -66,3 +66,9 @@ scripts/    setup.ps1（Windows 一鍵建置）、setup.sh（Mac / Linux）、do
 | `uv`、`git`、`node` 找不到（`is not recognized`） | 終端機程式整個關掉重開（只開新分頁不夠）；用 VS Code 的話「開啟資料夾」開 repo 根目錄並信任它 |
 | `npm ci` 報 `EPERM` | 先把正在跑的 `npm run dev` / `npm test` 用 `Ctrl+C` 關掉，再重跑腳本 |
 | 連線字串打錯 | 刪掉 `backend\.env`，重跑腳本 |
+
+
+
+
+
+更多症狀見 [`docs/DEBUGGING.md`](docs/DEBUGGING.md)；上線後的退版、換密鑰、備份見 [`docs/RUNBOOK.md`](docs/RUNBOOK.md)。
